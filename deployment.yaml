@@ -1,0 +1,82 @@
+# vllm model served locally
+#
+# Why choose vLLM:
+#   vLLM is an image that contains both improved cache and processing capabilities.   
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-openai-gpu
+  namespace: default
+  labels:
+    app: vllm-openai-gpu
+spec:
+  selector:
+    matchLabels: 
+      app: vllm-openai-gpu
+  template: 
+    metadata:
+      labels:
+        app: vllm-openai-gpu
+    spec:
+      tolerations:
+        - key: sku
+          operator: Equal
+          value: gpu
+          effect: NoSchedule   # matches the  --node-taints sku=gpu:NoSchedule that was set on the GPU nodepool
+      nodeSelector:
+        sku: gpu               # matches the  --labels sku=gpu set on the GPU nodepool
+      containers:
+        - name: vllm-gpu         
+          image: vllm/vllm-openai:latest   
+          args:
+            - --model
+            - Qwen/Qwen2.5-7B-Instruct-AWQ
+            - --quantization
+            - awq
+            - --served-model-name
+            - vllm-openai-gpu
+            - --port
+            - "8080"
+            - --gpu-memory-utilization
+            - "0.85"
+            - --max-num-seqs
+            - "32"
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+              name: metrics
+          env:
+            - name: HF_HOME                             # writable cache for the download
+              value: /tmp/hf
+            - name: OTEL_SDK_DISABLED
+              value: "true"
+            - name: OTEL_SERVICE_NAME
+              value: "vllm-openai-gpu"
+          securityContext:
+            capabilities:
+              add: ["SYS_NICE"]
+            seccompProfile:
+              type: Unconfined
+          readinessProbe:
+            httpGet:
+              path: /health                             # llama-server health endpoint
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 30                        # tolerate slow first-run download
+          resources:
+            requests:
+              cpu: "1"
+              memory: 4Gi
+            limits:
+              cpu: "2"
+              memory: 16Gi
+              nvidia.com/gpu: "1"                      # ensures only one pod per GPU node
+          volumeMounts:
+            - name: shm
+              mountPath: /dev/shm
+      volumes:
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 2Gi

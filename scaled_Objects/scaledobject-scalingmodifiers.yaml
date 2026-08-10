@@ -1,0 +1,54 @@
+# Option 4 — combine both signals with scalingModifiers: leading kv_cache (Option 3)
+# plus num_requests_waiting (Option 2) as a backstop.
+#   - kv_cache is the primary: leading and stable, so it scales early and holds.
+#   - num_requests_waiting is the floor: it only rises after saturation, but it catches
+#     bursts and workloads where the cache never hits 0.80 (short or prefix-cached prompts).
+# The formula normalizes each signal to "pods needed" (raw sum / its threshold) and takes
+# the max, so whichever needs more capacity wins:
+#       max(kv_cache / 0.80, num_waiting / 7)
+# With target 1 and AverageValue, desiredReplicas = ceil(max(...)). Both terms are sums,
+# so it keeps kv_cache's stable fixed point.
+# Triggers used in the formula must be named; their own threshold is ignored — the formula decides.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: vllm-openai-gpu
+  namespace: default
+spec:
+  scaleTargetRef:
+    name: vllm-openai-gpu
+  minReplicaCount: 1
+  maxReplicaCount: 3
+  pollingInterval: 15
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 120     # >= lead time L (node + engine init + readiness)
+          policies:
+            - type: Pods
+              value: 1
+              periodSeconds: 60
+        scaleUp:
+          stabilizationWindowSeconds: 0
+          policies:
+            - type: Pods
+              value: 2
+              periodSeconds: 15
+    scalingModifiers:
+      formula: "max(kv_cache / 0.80, num_waiting / 7)"   # -> pods needed; whichever signal wins
+      target: "1"                                          # ceil(formula) replicas
+      metricType: AverageValue                             # AverageValue => desired = ceil(formula/target)
+  triggers:
+    - type: prometheus
+      name: kv_cache                          # primary — leading signal (Option 3)
+      metadata:
+        serverAddress: http://kps-kube-prometheus-stack-prometheus.monitoring.svc:9090
+        query: sum(vllm:kv_cache_usage_perc)  # sum, not avg. V1 name; older: gpu_cache_usage_perc
+        threshold: "0.80"                     # ignored; the formula decides
+    - type: prometheus
+      name: num_waiting                       # backstop — reactive floor (Option 2)
+      metadata:
+        serverAddress: http://kps-kube-prometheus-stack-prometheus.monitoring.svc:9090
+        query: sum(vllm:num_requests_waiting)
+        threshold: "7"                        # ignored; the formula decides

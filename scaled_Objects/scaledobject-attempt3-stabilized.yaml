@@ -1,0 +1,42 @@
+# Option 3 — the fix: scale on kv_cache_usage_perc (a leading signal), summed. Stable run.
+# query: sum(vllm:kv_cache_usage_perc), threshold 0.80.
+#   - Leading: the KV cache fills before requests queue, so 0.80 fires while the pod still
+#     has headroom — that's the scale-up lead time.
+#   - Stable: sum() is total demand across pods and doesn't change when you add a replica,
+#     so ceil(sum / 0.80) has a stable fixed point. avg() would fall as pods are added and flap again.
+# Needs long, unique prompts (~7,500 in + 150 out). Prefix caching makes identical prompts share
+# one KV copy (~6% cache, never fires); short prompts stay near ~12%. See the runbook.
+# Only the trigger changed from Option 2 (same load), so the signal is the fix. The scale-down
+# damping is a safety net — set stabilizationWindowSeconds: 0 and it should still hold.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: vllm-openai-gpu
+  namespace: default
+spec:
+  scaleTargetRef:
+    name: vllm-openai-gpu
+  minReplicaCount: 1
+  maxReplicaCount: 3
+  pollingInterval: 15
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 120     # >= scale-up lead time (node + engine init + readiness)
+          policies:
+            - type: Pods
+              value: 1
+              periodSeconds: 60
+        scaleUp:
+          stabilizationWindowSeconds: 0
+          policies:
+            - type: Pods
+              value: 2
+              periodSeconds: 15
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://kps-kube-prometheus-stack-prometheus.monitoring.svc:9090
+        query: sum(vllm:kv_cache_usage_perc)   # sum, not avg. V1 name; older: gpu_cache_usage_perc
+        threshold: "0.80"

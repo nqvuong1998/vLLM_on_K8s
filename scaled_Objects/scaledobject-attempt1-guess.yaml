@@ -1,0 +1,20 @@
+# Option 1 — naive threshold. Example only, not actually run.
+# An arbitrary low threshold over-scales: KEDA uses ceil(total_waiting / threshold),
+# so a queue of 40 asks for ceil(40/5) = 8 replicas. Kept as the "bad config" the write-up points to.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: vllm-openai-gpu
+  namespace: default
+spec:
+  scaleTargetRef:
+    name: vllm-openai-gpu
+  minReplicaCount: 1
+  maxReplicaCount: 3
+  pollingInterval: 15
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://kps-kube-prometheus-stack-prometheus.monitoring.svc:9090
+        query: sum(vllm:num_requests_waiting)
+        threshold: "5"        # arbitrary, the usual tutorial default

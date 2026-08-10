@@ -1,0 +1,38 @@
+# Option 2 — calculated threshold on num_requests_waiting. This is the "still flaps" run.
+# T = wait budget (15s) * mu (~0.46 req/s, one pod's rate at saturation) = 7.
+# A 5s budget gives T=2, too twitchy. Re-measure mu (runbook step 1) and set T = 15*mu.
+# Too high a T won't scale up at the target load (0.6 req/s), so the flap never shows.
+# Damping is off on purpose: even a correct threshold flaps here, because num_requests_waiting
+# has no stable fixed point — it sits at ~0 whenever capacity is fine.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: vllm-openai-gpu
+  namespace: default
+spec:
+  scaleTargetRef:
+    name: vllm-openai-gpu
+  minReplicaCount: 1
+  maxReplicaCount: 3
+  pollingInterval: 15
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 0      # off — exposes the flap (HPA default is 300)
+          policies:
+            - type: Pods
+              value: 1
+              periodSeconds: 15
+        scaleUp:
+          stabilizationWindowSeconds: 0
+          policies:
+            - type: Pods
+              value: 2
+              periodSeconds: 15
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://kps-kube-prometheus-stack-prometheus.monitoring.svc:9090
+        query: sum(vllm:num_requests_waiting)
+        threshold: "7"                        # T = 15s budget * mu(~0.46 req/s) — see header
