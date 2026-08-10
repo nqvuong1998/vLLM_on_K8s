@@ -1,6 +1,6 @@
 # Your vLLM Autoscaler Is Flapping Because You Picked the Wrong Signal — Not the Wrong Number
 
-*Part of a series on running vLLM on AKS. Companion pieces: [GPU sizing](write-up-gpu-sizing) and [infrastructure setup](write-up-infrastructure-creation.md).*
+*Part of a series on running vLLM on AKS. Companion piece: [GPU sizing](https://github.com/JDoornink/vLLM_on_K8s/blob/main/write-up-gpu-sizing.md). Infrastructure setup — coming soon.*
 
 So... you've picked the right GPU for your use case, provisioned the cluster and node pool, deployed your model behind vLLM, installed KEDA and picked the request-queue as the autoscaling parameter as per the common recommendation: ["Tune the request queue to obtain the preferred latency, and use batch size if you can't hit your preferred latency."](https://docs.cloud.google.com/kubernetes-engine/docs/best-practices/machine-learning/inference/autoscaling)
 
@@ -51,7 +51,7 @@ It's better to calculate the threshold from the hardware specs, not a guess.
 
 
 So ... let's calculate a real one.  
-Here is the scaledobject for attempt1 if you are curious. [scaledobject-attempt1-guess.yaml](scaled_objects/scaledobject-attempt1-guess.yaml)
+Here is the scaledobject for attempt1 if you are curious. [scaledobject-attempt1-guess.yaml](https://github.com/JDoornink/vLLM_on_K8s/blob/main/scaled_Objects/scaledobject-attempt1-guess.yaml)
 
 ## Attempt 2 — a calculated threshold (still flaps)
 
@@ -78,7 +78,7 @@ Determine how many requests our GPU can handle at once given our assumption(s) (
 Concurrent_requests = 257,584 tokens / 1,000 tokens/request ≈ 258
 ```
 
-(Full VRAM → token-budget derivation is in the [GPU sizing](write-up-gpu-sizing) companion piece.)
+(Full VRAM → token-budget derivation is in the [GPU sizing](https://github.com/JDoornink/vLLM_on_K8s/blob/main/write-up-gpu-sizing.md) companion piece.)
 
 Finally, calculate the **Threshold from an SLO** (Little's Law — how many requests may queue before wait breaches `W_max`):
 
@@ -94,9 +94,9 @@ Threshold = W_max × Drain_rate = 5s × 25.8 ≈ 129
 
 However, for demonstration purposes, the rest of this article runs on a deliberately shrunk rig:
 
-> **Demo vs. production numbers:** `--max-num-seqs 32` caps concurrency at 32 so the queue is reachable at demo scale. Measuring with unique per-request prompts gave a real drain rate of `μ ≈ 0.46 req/s`; with a `W_max = 15s` budget, the same formula calibrates to `T = 15 × 0.46 ≈ 7`, versus `C ≈ 258` / `T ≈ 129` for the full-size pod. Don't get caught up on the smaller numbers — same method, same core point; it's just easier to demonstrate the flapping behavior and saves me money. [deployment.yaml](deployment.yaml)
+> **Demo vs. production numbers:** `--max-num-seqs 32` caps concurrency at 32 so the queue is reachable at demo scale. Measuring with unique per-request prompts gave a real drain rate of `μ ≈ 0.46 req/s`; with a `W_max = 15s` budget, the same formula calibrates to `T = 15 × 0.46 ≈ 7`, versus `C ≈ 258` / `T ≈ 129` for the full-size pod. Don't get caught up on the smaller numbers — same method, same core point; it's just easier to demonstrate the flapping behavior and saves me money. [deployment.yaml](https://github.com/JDoornink/vLLM_on_K8s/blob/main/deployment.yaml)
 
-Apply the ScaledObject ([scaledobject-attempt2-calculated.yaml](scaled_Objects/scaledobject-attempt2-calculated.yaml):
+Apply the ScaledObject ([scaledobject-attempt2-calculated.yaml](https://github.com/JDoornink/vLLM_on_K8s/blob/main/scaled_Objects/scaledobject-attempt2-calculated.yaml)):
 ```yaml
 triggers:
   - type: prometheus
@@ -106,9 +106,9 @@ triggers:
       threshold: "7"
 ```
 
-Apply the load ([load_test.py](load_test.py)):
+Apply the load ([load_test.py](https://github.com/JDoornink/vLLM_on_K8s/blob/main/load_test.py)):
 
-![Attempt 2 — calculated threshold on queue depth, still flaps](images/attempt2-calculated-threshold-with-lines.png)
+![Attempt 2 — calculated threshold on queue depth, still flaps](https://raw.githubusercontent.com/JDoornink/vLLM_on_K8s/main/images/attempt2-calculated-threshold-with-lines.png)
 
 Let's walk through what happened:
 
@@ -181,11 +181,11 @@ advanced:
       scaleDown:
         stabilizationWindowSeconds: 120   # >= L (node + engine init + readiness)
 ```
-Stable ScaledObject [scaledobject-attempt3-stabilized.yaml](scaled_Objects/scaledobject-attempt3-stabilized.yaml):
+Stable ScaledObject [scaledobject-attempt3-stabilized.yaml](https://github.com/JDoornink/vLLM_on_K8s/blob/main/scaled_Objects/scaledobject-attempt3-stabilized.yaml):
 
-Apply the load again ([load_test.py](load_test.py)):
+Apply the load again ([load_test.py](https://github.com/JDoornink/vLLM_on_K8s/blob/main/load_test.py)):
 
-![Attempt 3 — kv_cache @ 80% + damping, replicas step up and hold, no oscillation](images/attempt3-leading-signal-stable.png)
+![Attempt 3 — kv_cache @ 80% + damping, replicas step up and hold, no oscillation](https://raw.githubusercontent.com/JDoornink/vLLM_on_K8s/main/images/attempt3-leading-signal-stable.png)
 
 We now have a **stable** scale-up for processing.
 It works without trying to find the exact right threshold from the request queue!
@@ -206,10 +206,10 @@ Flapping is a signal-choice bug wearing a threshold costume. In order of impact:
 1. **Scale on a leading, proportional signal** (`kv_cache_usage_perc`), not a lagging saturation one (`num_requests_waiting`).
 2. **Query it as a sum, not an average** — `sum(vllm:kv_cache_usage_perc)` measures *total* demand across pods, which doesn't change when you add a replica.
 Additional Suggestions:
-3. **Use scalingModifiers** if you need to combine metrics. Example here: [scaledobject-scalingmodifiers.yaml](scaled_Objects/scaledobject-scalingmodifiers.yaml).
+3. **Use scalingModifiers** if you need to combine metrics. Example here: [scaledobject-scalingmodifiers.yaml](https://github.com/JDoornink/vLLM_on_K8s/blob/main/scaled_Objects/scaledobject-scalingmodifiers.yaml).
 4. **Size scale-down damping to your actual lead time.**
 
-The final working scaledObject used for Attempt 3 can be seen [here](scaled_Objects/scaledobject-attempt3-stabilized.yaml) — trigger, threshold, and damping in one place.
+The final working scaledObject used for Attempt 3 can be seen [here](https://github.com/JDoornink/vLLM_on_K8s/blob/main/scaled_Objects/scaledobject-attempt3-stabilized.yaml) — trigger, threshold, and damping in one place.
 
 You will likely still want to calculate your threshold, but — it's the last decision, not the first. 
 Get the signal right and most of the flapping is gone before you tune anything.

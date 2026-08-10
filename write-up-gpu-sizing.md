@@ -2,7 +2,7 @@
 
 ## OK, you're a senior SRE, you've been hearing incessantly about AI models, but aren't quite sure how to determine the correct node size to host your model. - If so ... you're in the right place.
 
-*Part of a series on running vLLM on AKS. Companion pieces: [How to avoid flapping](write-up-flapping.md) and [gpu infrastructure setup](write-up-infrastructure-creation.md).*
+*Part of a series on running vLLM on AKS. Companion piece: [How to avoid flapping](https://dev.to/josef_doornink_930b2caf1c/your-vllm-autoscaler-is-flapping-because-you-picked-the-wrong-signal-not-the-wrong-number-24lf). GPU infrastructure setup — coming soon.*
 
 This piece walks through estimating GPU memory requirements from both a model's parameter count or a concurrent requests reguirement. 
 
@@ -79,7 +79,7 @@ Below are links to some of the large cloud providers specification sheets.
 
 > **NOTE — reserve room for the engine:** vLLM pre-claims a fraction of total VRAM and is set using the `--gpu-memory-utilization` flag.  
 > The vLLM engine fits weights + activations + KV cache inside that claim, leaving the remainder as headroom for CUDA overhead and fragmentation.  
-> The default is 0.92; experiments showed that was too aggressive on our GPU and [we run 0.85](deployment.yaml).
+> The default is 0.92; experiments showed that was too aggressive on our GPU and [we run 0.85](https://github.com/JDoornink/vLLM_on_K8s/blob/main/deployment.yaml).
 
 So for the first pass, we are going to use Azures Standard_NV36ads_A10_v5 processor. (Note VRAM is listed under the Accelerators Tab in the [documents](https://learn.microsoft.com/en-us/azure/virtual-machines/sizes/gpu-accelerated/nvadsa10v5-series?tabs=sizeaccelerators) — the "Memory (GiB)" column on the Basics tab is the VM's system RAM, not the GPU's.)
 | Name | Accelerators | VRAM (GB) |
@@ -114,7 +114,7 @@ And convert tokens into the unit you actually care about — concurrent requests
 Concurrent_requests = 257,584 / 1,000 ≈ 258
 ```
 
-One A10 can hold roughly **258 average requests in flight**. That single number is what connects GPU shopping to capacity planning — it's the same `Concurrent_requests` the [flapping article](write-up-flapping.md) builds its theoretical autoscaling threshold from.
+One A10 can hold roughly **258 average requests in flight**. That single number is what connects GPU shopping to capacity planning — it's the same `Concurrent_requests` the [flapping article](https://dev.to/josef_doornink_930b2caf1c/your-vllm-autoscaler-is-flapping-because-you-picked-the-wrong-signal-not-the-wrong-number-24lf) builds its theoretical autoscaling threshold from.
 
 ---
 
@@ -145,7 +145,7 @@ Now you have baseline requirements and can choose the model that fits those requ
 
 ## Step 6 — Verify at boot: don't trust the estimate
 
-OK, now the cluster and service is alive with the desired GPU [[infrastructure setup](write-up-infrastructure-creation.md)].
+OK, now the cluster and service is alive with the desired GPU (infrastructure setup is covered in a companion piece — coming soon).
 The truth at startup is finally available becuase the truth comes from vLLM itself — at startup it profiles the hardware and prints exactly what it measured:.
 
 ```
@@ -169,7 +169,7 @@ OK - there you go ... after a couple of tries you're officially an expert at det
 5. **Calculate GPU from Requests SLO** — start from the concurrency you actually need and solve for the VRAM target instead; anything below that number is off the shortlist.
 6. **Verify** — the vLLM startup log is ground truth; grep it and reconcile against your Step 4 estimate.
 
-Next in the series: that `Concurrent_requests` number is the foundation of a defensible autoscaling threshold — and why even a defensible threshold isn't enough: [Your vLLM Autoscaler Is Flapping Because You Picked the Wrong Signal](write-up-flapping.md).
+Next in the series: that `Concurrent_requests` number is the foundation of a defensible autoscaling threshold — and why even a defensible threshold isn't enough: [Your vLLM Autoscaler Is Flapping Because You Picked the Wrong Signal](https://dev.to/josef_doornink_930b2caf1c/your-vllm-autoscaler-is-flapping-because-you-picked-the-wrong-signal-not-the-wrong-number-24lf).
 
 ---
 
@@ -177,7 +177,7 @@ Next in the series: that `Concurrent_requests` number is the foundation of a def
 
 Everything above sized *one* pod on *one* GPU. Fair question: what happens when the cluster has more than one? There are three scenarios here, and they're worth keeping distinct — because only one of them changes the math you just learned.
 
-**Scenario 1 — many single-GPU nodes (what this series runs).** Each pod owns one GPU and holds a full copy of the model; traffic is load-balanced across replicas. This is *data parallelism*, and it's already a multi-GPU cluster — the [flapping article](write-up-flapping.md) scales exactly this fleet from 1 to 3 GPUs. Nothing in the sizing math changes: total capacity is simply `C × replicas`.
+**Scenario 1 — many single-GPU nodes (what this series runs).** Each pod owns one GPU and holds a full copy of the model; traffic is load-balanced across replicas. This is *data parallelism*, and it's already a multi-GPU cluster — the [flapping article](https://dev.to/josef_doornink_930b2caf1c/your-vllm-autoscaler-is-flapping-because-you-picked-the-wrong-signal-not-the-wrong-number-24lf) scales exactly this fleet from 1 to 3 GPUs. Nothing in the sizing math changes: total capacity is simply `C × replicas`.
 
 **Scenario 2 — multi-GPU nodes, still one GPU per pod.** Some VM sizes pack multiple cards (e.g. Azure's NV72ads_A10_v5 has 2× A10). Keep `nvidia.com/gpu: "1"` per pod and Kubernetes schedules two vLLM pods onto one node. The sizing math is *still* unchanged — each pod sees its own 24 GB card. This holds as long as [GPU time-slicing](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-sharing.html) is disabled; with it enabled, two pods can share one physical card with no memory isolation and none of the numbers above apply.  
 
