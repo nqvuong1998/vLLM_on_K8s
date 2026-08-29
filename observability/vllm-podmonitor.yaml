@@ -1,0 +1,19 @@
+# Scrape vLLM's own Prometheus metrics (queue depth, request latency, tokens).
+# vLLM serves them at /metrics on the container's named port "metrics" (8080).
+# kps Prometheus selects all PodMonitors (serviceMonitorSelectorNilUsesHelmValues=false),
+# so this is discovered without any release label.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: vllm-openai-gpu
+  namespace: default
+  labels:
+    app: vllm-openai-gpu
+spec:
+  selector:
+    matchLabels:
+      app: vllm-openai-gpu
+  podMetricsEndpoints:
+    - port: metrics          # the containerPort named "metrics" in deployment.yaml
+      path: /metrics
+      interval: 15s

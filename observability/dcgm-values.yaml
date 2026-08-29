@@ -1,0 +1,24 @@
+# dcgm-exporter (NVIDIA) values — GPU-level metrics for Prometheus.
+# DaemonSet pinned to the GPU node pool; must tolerate the sku=gpu taint.
+# ServiceMonitor picked up automatically (kps Prometheus selects all monitors).
+
+nodeSelector:
+  sku: gpu
+
+tolerations:
+  - operator: Exists          # tolerate sku=gpu:NoSchedule (and any others)
+
+serviceMonitor:
+  enabled: true
+  interval: 15s
+  scrapeTimeout: 10s      # MUST be <= interval; chart default 25s > 15s made the SM invalid
+                          # and the Prometheus operator silently dropped the target
+
+# dcgm-exporter needs the NVIDIA runtime libs; the A10 node has them.
+# NOTE: 256Mi limit OOMKilled it (exit 137) — DCGM's field collection needs more headroom.
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 1Gi

@@ -160,6 +160,7 @@ If they're way off, something in your assumptions is wrong (usually the quantiza
 OK - there you go ... after a couple of tries you're officially an expert at determining the correct GPU to handle your inference model.
 ---
 
+
 ## Summary
 
 1. **Model** — pick a candidate; everything below reads off its spec sheet, so you can run this on a whole shortlist.

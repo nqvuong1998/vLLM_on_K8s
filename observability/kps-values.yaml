@@ -1,0 +1,44 @@
+# kube-prometheus-stack values — cost-disciplined, CPU-pool only
+# Small PV on AKS built-in managed-csi, short retention. GPU node stays at 0.
+
+prometheus:
+  prometheusSpec:
+    retention: 6h
+    # Scrape anything with the label release=kps regardless of namespace,
+    # plus discover ServiceMonitors/PodMonitors we create ourselves.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        memory: 1Gi
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: managed-csi
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 8Gi
+
+grafana:
+  enabled: true
+  adminPassword: admin
+  defaultDashboardsEnabled: true
+  persistence:
+    enabled: false          # dashboards are code/imported; keep PV footprint minimal
+  service:
+    type: ClusterIP         # no LoadBalancer — port-forward only (cost hygiene)
+
+# Trim components we don't need for this exercise
+alertmanager:
+  enabled: false
+
+# The stack's node-exporter/kube-state-metrics are cheap and useful — keep them.
+prometheus-node-exporter:
+  # tolerate the GPU taint so node-exporter also lands on the GPU node when it scales up
+  tolerations:
+    - operator: Exists
